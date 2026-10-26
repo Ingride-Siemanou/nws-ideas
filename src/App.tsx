@@ -26,7 +26,7 @@ export default function App() {
   const [formOpen, setFormOpen] = useState(false)
   const [selected, setSelected] = useState<Idea | null>(null)
   const [toast, setToast] = useState('')
-  const [authMode, setAuthMode] = useState<'login'|'signup'>('login')
+  const [authMode, setAuthMode] = useState<'login'|'signup'|'reset'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
@@ -80,6 +80,15 @@ export default function App() {
 
   async function authenticate(e: FormEvent) {
     e.preventDefault()
+    if (authMode === 'reset') {
+      if (!email.toLowerCase().endsWith(`@${allowedDomain}`)) { notify(`Utilise ton adresse @${allowedDomain}`); return }
+      setAuthBusy(true)
+      const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase(), { redirectTo: `${window.location.origin}/` })
+      setAuthBusy(false)
+      if (error) notify(error.message)
+      else notify('Si cette adresse possède un compte, un e-mail de réinitialisation vient d’être envoyé.')
+      return
+    }
     if (!email.toLowerCase().endsWith(`@${allowedDomain}`)) { notify(`Utilise ton adresse @${allowedDomain}`); return }
     if (password.length < 8) { notify('Le mot de passe doit contenir au moins 8 caractères.'); return }
     setAuthBusy(true)
@@ -172,7 +181,7 @@ export default function App() {
       </div>
     </main>
 
-    {authOpen && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthOpen(false)}}><section className="modal"><button className="modal-close" onClick={()=>setAuthOpen(false)}><X/></button><div className="modal-mark"><img src="/logo-nws.jpeg" alt="Logo Normandie Web School" /></div><div className="eyebrow dark-eye">BIENVENUE À LA NWS</div><h2>{authMode==='login'?'Content de te revoir.':'Rejoins la communauté.'}</h2><p>Connecte-toi avec ton adresse e-mail étudiante pour participer.</p><form onSubmit={authenticate} className="form-stack"><label>Adresse e-mail NWS<input type="email" required placeholder={`prenom@${allowedDomain}`} value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Mot de passe<input type="password" required minLength={8} placeholder="8 caractères minimum" value={password} onChange={e=>setPassword(e.target.value)}/></label><button className="btn btn-yellow full-width" disabled={authBusy||!isConfigured}>{authBusy?<LoaderCircle className="spin"/>:null}{authMode==='login'?'Se connecter':'Créer mon compte'} <ArrowUpRight size={16}/></button>{!isConfigured&&<small className="form-hint">Configure Supabase pour activer l'authentification.</small>}</form><div className="modal-switch">{authMode==='login'?'Pas encore de compte ?':'Déjà inscrit ?'} <button onClick={()=>setAuthMode(authMode==='login'?'signup':'login')}>{authMode==='login'?'Créer un compte':'Se connecter'}</button></div></section></div>}
+    {authOpen && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthOpen(false)}}><section className="modal auth-modal"><button className="modal-close" onClick={()=>setAuthOpen(false)} aria-label="Fermer"><X/></button><div className="modal-mark"><img src="/logo-nws.jpeg" alt="Logo Normandie Web School" /></div><div className="eyebrow dark-eye">BIENVENUE À LA NWS</div><h2>{authMode==='login'?'Content de te revoir.':authMode==='signup'?'Rejoins la communauté.':'Mot de passe oublié ?'}</h2><p>{authMode==='reset'?'Saisis ton adresse e-mail NWS. Nous t’enverrons un lien pour choisir un nouveau mot de passe.':'Connecte-toi avec ton adresse e-mail étudiante pour participer.'}</p><form onSubmit={authenticate} className="form-stack"><label>Adresse e-mail NWS<input type="email" required placeholder={`prenom@${allowedDomain}`} value={email} onChange={e=>setEmail(e.target.value)}/></label>{authMode!=='reset'&&<label>Mot de passe<input type="password" required minLength={8} placeholder="8 caractères minimum" value={password} onChange={e=>setPassword(e.target.value)}/></label>}{authMode==='login'&&<button type="button" className="forgot-password" onClick={()=>setAuthMode('reset')}>Mot de passe oublié ?</button>}<button className="btn btn-yellow full-width" disabled={authBusy||!isConfigured}>{authBusy?<LoaderCircle className="spin"/>:null}{authMode==='login'?'Se connecter':authMode==='signup'?'Créer mon compte':'Envoyer le lien de réinitialisation'} <ArrowUpRight size={16}/></button>{!isConfigured&&<small className="form-hint">Configure Supabase pour activer l'authentification.</small>}</form><div className="modal-switch">{authMode==='reset'?'Tu te souviens de ton mot de passe ?':authMode==='login'?'Pas encore de compte ?':'Déjà inscrit ?'} <button onClick={()=>setAuthMode(authMode==='login'?'signup':'login')}>{authMode==='login'?'Créer un compte':'Se connecter'}</button></div></section></div>}
 
     {formOpen && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setFormOpen(false)}}><section className="modal modal-wide"><button className="modal-close" onClick={()=>setFormOpen(false)}><X/></button><div className="eyebrow dark-eye">À TOI DE JOUER</div><h2>Propose ton idée<span className="yellow-dot">.</span></h2><p>Chaque suggestion compte. Explique-nous ce qui pourrait améliorer la vie à la NWS.</p><form onSubmit={submitIdea} className="form-stack"><label>Titre de l'idée<input required maxLength={100} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Ex. : Un espace détente plus convivial"/></label><label>Description détaillée<textarea required minLength={15} maxLength={3000} rows={5} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Explique ton idée, le besoin auquel elle répond et comment la mettre en place…"/></label><label>Catégorie<select value={newCategory} onChange={e=>setNewCategory(e.target.value as Category)}>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label className="upload-box"><ImagePlus size={20}/><span><b>{imageFile?.name || 'Ajouter une image (facultatif)'}</b><small>JPG, PNG ou WebP · 5 Mo maximum</small></span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>{const f=e.target.files?.[0]||null;if(f&&f.size>5*1024*1024){notify('Image limitée à 5 Mo.');e.target.value='';return}setImageFile(f)}}/></label><button className="btn btn-yellow full-width" disabled={loading}>{loading?<LoaderCircle className="spin"/>:<Plus size={18}/>} Publier mon idée <ArrowUpRight size={16}/></button></form></section></div>}
 
