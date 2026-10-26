@@ -136,5 +136,5 @@ with check (bucket_id = 'idea-images' and (storage.foldername(name))[1] = (selec
 create policy "delete own idea images" on storage.objects for delete to authenticated
 using (bucket_id = 'idea-images' and (storage.foldername(name))[1] = (select auth.uid())::text);
 
--- Admin setup (replace EMAIL with a real, verified NWS account after registration):
--- update public.profiles set role = 'admin' where email = 'admin@normandiewebschool.fr';
+-- Après avoir appliqué ce schéma, exécuter aussi supabase/admin-access.sql
+-- pour activer le formulaire administrateur basé sur une liste d'adresses autorisées.

@@ -26,7 +26,8 @@ export default function App() {
   const [formOpen, setFormOpen] = useState(false)
   const [selected, setSelected] = useState<Idea | null>(null)
   const [toast, setToast] = useState('')
-  const [authMode, setAuthMode] = useState<'login'|'signup'|'reset'>('login')
+  const [authMode, setAuthMode] = useState<'login'|'signup'|'reset'|'admin-login'|'admin-signup'>('login')
+  const [resetReturnMode, setResetReturnMode] = useState<'login'|'admin-login'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
@@ -80,25 +81,69 @@ export default function App() {
 
   async function authenticate(e: FormEvent) {
     e.preventDefault()
+    const normalizedEmail = email.trim().toLowerCase()
+    const isAdminMode = authMode === 'admin-login' || authMode === 'admin-signup'
+    const isSignup = authMode === 'signup' || authMode === 'admin-signup'
+
     if (authMode === 'reset') {
-      if (!email.toLowerCase().endsWith(`@${allowedDomain}`)) { notify(`Utilise ton adresse @${allowedDomain}`); return }
+      if (!normalizedEmail.endsWith(`@${allowedDomain}`)) { notify(`Utilise ton adresse @${allowedDomain}`); return }
       setAuthBusy(true)
-      const { error } = await supabase.auth.resetPasswordForEmail(email.toLowerCase(), { redirectTo: `${window.location.origin}/` })
+      const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, { redirectTo: `${window.location.origin}/` })
       setAuthBusy(false)
       if (error) notify(error.message)
       else notify('Si cette adresse possède un compte, un e-mail de réinitialisation vient d’être envoyé.')
       return
     }
-    if (!email.toLowerCase().endsWith(`@${allowedDomain}`)) { notify(`Utilise ton adresse @${allowedDomain}`); return }
+    if (!normalizedEmail.endsWith(`@${allowedDomain}`)) { notify(`Utilise ton adresse @${allowedDomain}`); return }
     if (password.length < 8) { notify('Le mot de passe doit contenir au moins 8 caractères.'); return }
+
     setAuthBusy(true)
-    const result = authMode === 'signup'
-      ? await supabase.auth.signUp({ email: email.toLowerCase(), password })
-      : await supabase.auth.signInWithPassword({ email: email.toLowerCase(), password })
+    if (isSignup) {
+      const { error } = await supabase.auth.signUp({
+        email: normalizedEmail,
+        password,
+        options: { data: { requested_role: isAdminMode ? 'admin' : 'student' } }
+      })
+      setAuthBusy(false)
+      if (error) {
+        notify(isAdminMode
+          ? 'Inscription administrateur impossible. Vérifie que cette adresse est autorisée dans Supabase et qu’elle n’a pas déjà de compte.'
+          : error.message)
+      } else {
+        setAuthOpen(false)
+        notify(isAdminMode
+          ? 'Demande de compte administrateur envoyée. Vérifie tes e-mails. Seules les adresses préautorisées obtiennent les droits admin.'
+          : 'Compte créé. Consulte tes e-mails pour confirmer ton adresse.')
+      }
+      return
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password })
+    if (error || !data.user) {
+      setAuthBusy(false)
+      notify(error?.message || 'Connexion impossible. Vérifie tes identifiants.')
+      return
+    }
+
+    if (isAdminMode) {
+      const { data: adminProfile, error: profileError } = await supabase
+        .from('profiles').select('role').eq('id', data.user.id).single()
+      if (profileError || adminProfile?.role !== 'admin') {
+        await supabase.auth.signOut()
+        setAuthBusy(false)
+        notify('Ce compte n’a pas accès à l’espace administrateur. Utilise une adresse autorisée.')
+        return
+      }
+      setPage('admin')
+      setAuthOpen(false)
+      setAuthBusy(false)
+      notify('Bienvenue dans l’espace administrateur !')
+      return
+    }
+
+    setAuthOpen(false)
     setAuthBusy(false)
-    if (result.error) notify(result.error.message)
-    else if (authMode === 'signup') notify('Compte créé. Consulte tes e-mails pour confirmer ton adresse.')
-    else { setAuthOpen(false); notify('Bienvenue sur NWS Ideas !') }
+    notify('Bienvenue sur NWS Ideas !')
   }
 
   async function vote(idea: Idea) {
@@ -160,7 +205,7 @@ export default function App() {
     </aside>
 
     <main className="main-area">
-      <header className="topbar"><div className="breadcrumb">NWS <span>/</span> <b>{page==='mine'?'Mes propositions':page==='admin'?'Administration':'Boîte à idées'}</b></div><div className="top-actions"><span className="live-dot"/> <span className="top-status">L'espace collaboratif étudiant</span>{!session && <button className="btn btn-dark btn-small" onClick={() => setAuthOpen(true)}>Connexion <ArrowUpRight size={15}/></button>}</div></header>
+      <header className="topbar"><div className="breadcrumb">NWS <span>/</span> <b>{page==='mine'?'Mes propositions':page==='admin'?'Administration':'Boîte à idées'}</b></div><div className="top-actions"><span className="live-dot"/> <span className="top-status">L'espace collaboratif étudiant</span><button className="admin-entry" onClick={() => { if (session && profile?.role === 'admin') setPage('admin'); else { setAuthMode('admin-login'); setAuthOpen(true) } }}><ShieldCheck size={15}/> Espace admin</button>{!session && <button className="btn btn-dark btn-small" onClick={() => { setAuthMode('login'); setAuthOpen(true) }}>Connexion <ArrowUpRight size={15}/></button>}</div></header>
       <div className="content">
         <section className="hero"><div className="hero-copy"><div className="eyebrow"><span/> LA COMMUNAUTÉ NWS IMAGINE DEMAIN</div><h1>Et si on faisait<br/>bouger les choses<span className="yellow-dot">.</span></h1><p>Une idée, une envie, une amélioration ? Partage tes propositions et construisons ensemble une meilleure expérience à la NWS.</p><button className="btn btn-yellow" onClick={() => session ? setFormOpen(true) : setAuthOpen(true)}><Plus size={18}/> Proposer une idée <ArrowUpRight size={16}/></button></div><div className="hero-art"><div className="art-orbit orbit-one"/><div className="art-orbit orbit-two"/><div className="idea-card-floating"><div className="floating-icon"><Lightbulb size={31}/></div><div><b>Les idées changent tout.</b><span>La prochaine peut être la tienne.</span></div><Sparkles className="floating-spark" size={23}/></div><div className="art-badge badge-top">✳ 100% collaboratif</div><div className="art-badge badge-bottom"><span className="live-dot"/> Tes idées comptent</div></div><div className="hero-index">01 <span>/</span> 03</div></section>
 
@@ -181,7 +226,7 @@ export default function App() {
       </div>
     </main>
 
-    {authOpen && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthOpen(false)}}><section className="modal auth-modal"><button className="modal-close" onClick={()=>setAuthOpen(false)} aria-label="Fermer"><X/></button><div className="modal-mark"><img src="/logo-nws.jpeg" alt="Logo Normandie Web School" /></div><div className="eyebrow dark-eye">BIENVENUE À LA NWS</div><h2>{authMode==='login'?'Content de te revoir.':authMode==='signup'?'Rejoins la communauté.':'Mot de passe oublié ?'}</h2><p>{authMode==='reset'?'Saisis ton adresse e-mail NWS. Nous t’enverrons un lien pour choisir un nouveau mot de passe.':'Connecte-toi avec ton adresse e-mail étudiante pour participer.'}</p><form onSubmit={authenticate} className="form-stack"><label>Adresse e-mail NWS<input type="email" required placeholder={`prenom@${allowedDomain}`} value={email} onChange={e=>setEmail(e.target.value)}/></label>{authMode!=='reset'&&<label>Mot de passe<input type="password" required minLength={8} placeholder="8 caractères minimum" value={password} onChange={e=>setPassword(e.target.value)}/></label>}{authMode==='login'&&<button type="button" className="forgot-password" onClick={()=>setAuthMode('reset')}>Mot de passe oublié ?</button>}<button className="btn btn-yellow full-width" disabled={authBusy||!isConfigured}>{authBusy?<LoaderCircle className="spin"/>:null}{authMode==='login'?'Se connecter':authMode==='signup'?'Créer mon compte':'Envoyer le lien de réinitialisation'} <ArrowUpRight size={16}/></button>{!isConfigured&&<small className="form-hint">Configure Supabase pour activer l'authentification.</small>}</form><div className="modal-switch">{authMode==='reset'?'Tu te souviens de ton mot de passe ?':authMode==='login'?'Pas encore de compte ?':'Déjà inscrit ?'} <button onClick={()=>setAuthMode(authMode==='login'?'signup':'login')}>{authMode==='login'?'Créer un compte':'Se connecter'}</button></div></section></div>}
+    {authOpen && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setAuthOpen(false)}}><section className="modal auth-modal"><button className="modal-close" onClick={()=>setAuthOpen(false)} aria-label="Fermer"><X/></button><div className="modal-mark"><img src="/logo-nws.jpeg" alt="Logo Normandie Web School" /></div><div className="eyebrow dark-eye">BIENVENUE À LA NWS</div><h2>{authMode==='admin-login'?'Connexion administrateur':authMode==='admin-signup'?'Créer un compte administrateur':authMode==='login'?'Content de te revoir.':authMode==='signup'?'Rejoins la communauté.':'Mot de passe oublié ?'}</h2><p>{authMode==='reset'?'Saisis ton adresse e-mail NWS. Nous t’enverrons un lien pour choisir un nouveau mot de passe.':authMode==='admin-login'?'Connecte-toi avec une adresse autorisée pour gérer les propositions de la NWS.':authMode==='admin-signup'?'L’inscription est réservée aux adresses ajoutées à la liste d’autorisation de l’école dans Supabase.':'Connecte-toi avec ton adresse e-mail étudiante pour participer.'}</p><form onSubmit={authenticate} className="form-stack"><label>Adresse e-mail NWS<input type="email" required placeholder={`prenom@${allowedDomain}`} value={email} onChange={e=>setEmail(e.target.value)}/></label>{authMode!=='reset'&&<label>Mot de passe<input type="password" required minLength={8} placeholder="8 caractères minimum" value={password} onChange={e=>setPassword(e.target.value)}/></label>}{(authMode==='login'||authMode==='admin-login')&&<button type="button" className="forgot-password" onClick={()=>{setResetReturnMode(authMode);setAuthMode('reset')}}>Mot de passe oublié ?</button>}<button className="btn btn-yellow full-width" disabled={authBusy||!isConfigured}>{authBusy?<LoaderCircle className="spin"/>:null}{authMode==='login'?'Se connecter':authMode==='signup'?'Créer mon compte':authMode==='admin-login'?'Accéder à l’administration':authMode==='admin-signup'?'Créer mon compte administrateur':'Envoyer le lien de réinitialisation'} <ArrowUpRight size={16}/></button>{!isConfigured&&<small className="form-hint">Configure Supabase pour activer l'authentification.</small>}</form><div className="modal-switch">{authMode==='reset'?'Tu te souviens de ton mot de passe ?':authMode==='login'?'Pas encore de compte ?':authMode==='signup'?'Déjà inscrit ?':authMode==='admin-login'?'Adresse autorisée mais pas encore de compte ?':'Déjà un compte administrateur ?'} <button onClick={()=>{if(authMode==='reset')setAuthMode(resetReturnMode);else if(authMode==='login')setAuthMode('signup');else if(authMode==='signup')setAuthMode('login');else if(authMode==='admin-login')setAuthMode('admin-signup');else setAuthMode('admin-login')}}>{authMode==='reset'?'Se connecter':authMode==='login'?'Créer un compte':authMode==='signup'?'Se connecter':authMode==='admin-login'?'Créer un compte administrateur':'Se connecter'}</button>{(authMode==='admin-login'||authMode==='admin-signup')&&<div className="auth-back"><button onClick={()=>setAuthMode('login')}>← Retour à la connexion étudiante</button></div>}</div></section></div>}
 
     {formOpen && <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)setFormOpen(false)}}><section className="modal modal-wide"><button className="modal-close" onClick={()=>setFormOpen(false)}><X/></button><div className="eyebrow dark-eye">À TOI DE JOUER</div><h2>Propose ton idée<span className="yellow-dot">.</span></h2><p>Chaque suggestion compte. Explique-nous ce qui pourrait améliorer la vie à la NWS.</p><form onSubmit={submitIdea} className="form-stack"><label>Titre de l'idée<input required maxLength={100} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Ex. : Un espace détente plus convivial"/></label><label>Description détaillée<textarea required minLength={15} maxLength={3000} rows={5} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Explique ton idée, le besoin auquel elle répond et comment la mettre en place…"/></label><label>Catégorie<select value={newCategory} onChange={e=>setNewCategory(e.target.value as Category)}>{categories.map(c=><option key={c}>{c}</option>)}</select></label><label className="upload-box"><ImagePlus size={20}/><span><b>{imageFile?.name || 'Ajouter une image (facultatif)'}</b><small>JPG, PNG ou WebP · 5 Mo maximum</small></span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>{const f=e.target.files?.[0]||null;if(f&&f.size>5*1024*1024){notify('Image limitée à 5 Mo.');e.target.value='';return}setImageFile(f)}}/></label><button className="btn btn-yellow full-width" disabled={loading}>{loading?<LoaderCircle className="spin"/>:<Plus size={18}/>} Publier mon idée <ArrowUpRight size={16}/></button></form></section></div>}
 

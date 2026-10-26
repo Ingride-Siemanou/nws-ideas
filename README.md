@@ -60,20 +60,11 @@ Application React + TypeScript + Vite connectée à Supabase pour centraliser le
    npm run preview
    ```
 
-## Créer le compte administrateur de démonstration
+## Créer un accès administrateur
 
-1. Inscrire un compte avec une adresse NWS valide et confirmer l'adresse e-mail.
-2. Dans Supabase > SQL Editor, exécuter cette requête en remplaçant l'adresse par celle du compte de démonstration créé :
+Après `supabase/schema.sql`, exécuter une fois `supabase/admin-access.sql` dans Supabase > SQL Editor. Ajouter ensuite les adresses e-mail du personnel autorisé à `public.admin_email_allowlist` (la requête exacte est expliquée dans `ADMIN-SETUP.md`). Les adresses autorisées peuvent utiliser le bouton **Espace admin** pour créer leur compte ou se connecter. Le rôle est décidé par le trigger SQL ; un étudiant ne peut pas se donner les droits admin depuis le navigateur.
 
-   ```sql
-   update public.profiles
-   set role = 'admin'
-   where email = 'admin@normandiewebschool.fr';
-   ```
-
-3. Déconnecter puis reconnecter ce compte. Le menu Administration apparaît.
-
-Ne pas distribuer un mot de passe administrateur partagé en production. Pour une démonstration, créer un compte dédié, puis transmettre les identifiants par un canal privé.
+Ne pas distribuer de mot de passe administrateur partagé en production.
 
 ## Déploiement sur Vercel
 
@@ -89,7 +80,7 @@ Ne pas distribuer un mot de passe administrateur partagé en production. Pour un
 - Le contrôle du domaine e-mail est effectué côté interface et dans le trigger SQL, mais le domaine exact doit être confirmé avec la NWS.
 - La confirmation d'adresse doit être activée dans Supabase Auth : la simple saisie d'une adresse n'authentifie pas un étudiant.
 - Les profils ne sont pas publiquement lisibles. Ne pas sélectionner `profiles.email` dans les requêtes publiques.
-- Le rôle admin est attribué par une opération SQL de confiance, jamais par l'interface étudiante.
+- Les adresses autorisées à administrer sont gérées dans `public.admin_email_allowlist`; un trigger de confiance accorde ou révoque automatiquement le rôle correspondant.
 - Les politiques RLS sont indispensables même si l'interface masque les boutons d'administration.
 - La clé publique `anon` est prévue pour le navigateur avec RLS activée. La clé `service_role` ne doit jamais être exposée.
 - Les notifications sont enregistrées en base ; une vue dédiée pour les consulter doit être ajoutée avant une mise en production complète.
@@ -128,3 +119,7 @@ L'interface utilise une direction graphique contemporaine : bleu nuit, jaune lum
 - Jaune NWS : `#fec800`
 - Logo fourni : `public/logo-nws.jpeg`
 Les couleurs sont appliquées aux actions principales, aux éléments de navigation et aux accents de l'interface.
+
+## Espace administrateur (sécurisé)
+
+Après avoir appliqué `supabase/schema.sql`, exécutez une fois `supabase/admin-access.sql` dans Supabase > SQL Editor. Puis autorisez les adresses du personnel NWS en ajoutant leurs e-mails à `public.admin_email_allowlist` via SQL Editor. Une adresse autorisée peut créer son compte depuis le bouton **Espace admin**; les autres adresses ne peuvent pas s'auto-attribuer le rôle. Le rôle est décidé côté base de données, pas seulement par l'interface.
