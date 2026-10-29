@@ -130,9 +130,11 @@ export default function App() {
   const [formOpen, setFormOpen] = useState(false)
   const [selected, setSelected] = useState<Idea | null>(null)
   const [toast, setToast] = useState('')
+
   const [authMode, setAuthMode] = useState<
     'login' | 'signup' | 'reset' | 'admin-login' | 'admin-signup'
   >('login')
+
   const [resetReturnMode, setResetReturnMode] =
     useState<'login' | 'admin-login'>('login')
 
@@ -146,23 +148,39 @@ export default function App() {
     useState<Category>('Vie étudiante')
   const [imageFile, setImageFile] = useState<File | null>(null)
 
-  // Commentaires de l'idée sélectionnée
   const [ideaComments, setIdeaComments] = useState<IdeaComment[]>([])
   const [commentText, setCommentText] = useState('')
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [commentBusy, setCommentBusy] = useState(false)
 
-  // Notifications de l'utilisateur connecté
   const [notifications, setNotifications] =
     useState<AppNotification[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
+
+  // Effacer les champs lorsque la fenêtre de connexion se ferme.
+  // Cela efface l'état React, mais le navigateur peut encore proposer
+  // des identifiants mémorisés dans son propre gestionnaire de mots de passe.
+  useEffect(() => {
+    if (!authOpen) {
+      setEmail('')
+      setPassword('')
+    }
+  }, [authOpen])
 
   function notify(message: string) {
     setToast(message)
     window.setTimeout(() => setToast(''), 3500)
   }
 
-  // Connexion Supabase
+  function openAuth(mode: typeof authMode = 'login') {
+    // Ne jamais réutiliser les identifiants précédemment saisis
+    setEmail('')
+    setPassword('')
+    setAuthMode(mode)
+    setAuthOpen(true)
+  }
+
+  // Récupérer la session Supabase.
   useEffect(() => {
     if (!isConfigured) return
 
@@ -177,7 +195,7 @@ export default function App() {
     return () => listener.subscription.unsubscribe()
   }, [])
 
-  // Récupération du profil et du rôle
+  // Charger le profil et le rôle de l'utilisateur.
   useEffect(() => {
     if (!session?.user) {
       setProfile(null)
@@ -210,7 +228,7 @@ export default function App() {
     }
   }, [session])
 
-  // Chargement des idées et de leurs votes
+  // Charger les idées et les votes.
   async function loadIdeas() {
     if (!isConfigured || !session) return
 
@@ -248,7 +266,7 @@ export default function App() {
     setLoading(false)
   }
 
-  // Chargement des notifications personnelles
+  // Charger les notifications personnelles.
   async function loadNotifications() {
     if (!isConfigured || !session) {
       setNotifications([])
@@ -274,7 +292,7 @@ export default function App() {
     setNotificationsLoading(false)
   }
 
-  // Chargement des commentaires d'une idée réelle
+  // Charger les commentaires de la proposition sélectionnée.
   async function loadComments(ideaId: string) {
     if (!isConfigured || !session || ideaId.startsWith('demo-')) {
       setIdeaComments([])
@@ -324,7 +342,7 @@ export default function App() {
     notification => !notification.read_at
   ).length
 
-  // Recherche, filtres et classement des idées
+  // Recherche, filtres et classement.
   const visibleIdeas = useMemo(() => {
     let list = [...ideas]
 
@@ -359,105 +377,7 @@ export default function App() {
     return list
   }, [ideas, category, search, sort, page, session])
 
-  // Publier un commentaire
-  async function submitComment(event: FormEvent) {
-    event.preventDefault()
-
-    if (!session) {
-      setAuthMode('login')
-      setAuthOpen(true)
-      return
-    }
-
-    if (!selected || selected.id.startsWith('demo-')) {
-      notify(
-        'Les commentaires sont disponibles sur les idées réellement enregistrées.'
-      )
-      return
-    }
-
-    const body = commentText.trim()
-
-    if (!body) {
-      notify('Écris un commentaire avant de publier.')
-      return
-    }
-
-    if (body.length > 1000) {
-      notify('Le commentaire ne doit pas dépasser 1000 caractères.')
-      return
-    }
-
-    setCommentBusy(true)
-
-    const { error } = await supabase.from('comments').insert({
-      idea_id: selected.id,
-      author_id: session.user.id,
-      body
-    })
-
-    setCommentBusy(false)
-
-    if (error) {
-      notify(`Commentaire non publié : ${error.message}`)
-      return
-    }
-
-    setCommentText('')
-    await loadComments(selected.id)
-    notify('Commentaire publié !')
-  }
-
-  // Supprimer un commentaire créé par soi-même, ou par un admin
-  async function deleteComment(comment: IdeaComment) {
-    if (
-      !session ||
-      (comment.author_id !== session.user.id && profile?.role !== 'admin')
-    ) {
-      return
-    }
-
-    if (!window.confirm('Supprimer ce commentaire ?')) return
-
-    const { error } = await supabase
-      .from('comments')
-      .delete()
-      .eq('id', comment.id)
-
-    if (error) {
-      notify(`Commentaire non supprimé : ${error.message}`)
-      return
-    }
-
-    await loadComments(comment.idea_id)
-    notify('Commentaire supprimé.')
-  }
-
-  // Marquer une notification comme lue
-  async function markNotificationRead(notification: AppNotification) {
-    if (!session || notification.read_at) return
-
-    const now = new Date().toISOString()
-
-    const { error } = await supabase
-      .from('notifications')
-      .update({ read_at: now })
-      .eq('id', notification.id)
-      .eq('user_id', session.user.id)
-
-    if (error) {
-      notify(`Impossible de marquer la notification comme lue : ${error.message}`)
-      return
-    }
-
-    setNotifications(current =>
-      current.map(item =>
-        item.id === notification.id ? { ...item, read_at: now } : item
-      )
-    )
-  }
-
-  // Inscription, connexion et récupération du mot de passe
+  // Connexion, inscription et réinitialisation du mot de passe.
   async function authenticate(event: FormEvent) {
     event.preventDefault()
 
@@ -467,12 +387,12 @@ export default function App() {
     const isSignup =
       authMode === 'signup' || authMode === 'admin-signup'
 
-    if (authMode === 'reset') {
-      if (!normalizedEmail.endsWith(`@${allowedDomain}`)) {
-        notify(`Utilise ton adresse @${allowedDomain}`)
-        return
-      }
+    if (!normalizedEmail.endsWith(`@${allowedDomain}`)) {
+      notify(`Utilise ton adresse @${allowedDomain}`)
+      return
+    }
 
+    if (authMode === 'reset') {
       setAuthBusy(true)
 
       const { error } = await supabase.auth.resetPasswordForEmail(
@@ -485,16 +405,13 @@ export default function App() {
       if (error) {
         notify(error.message)
       } else {
+        setEmail('')
+        setPassword('')
         notify(
           'Si cette adresse possède un compte, un e-mail de réinitialisation vient d’être envoyé.'
         )
       }
 
-      return
-    }
-
-    if (!normalizedEmail.endsWith(`@${allowedDomain}`)) {
-      notify(`Utilise ton adresse @${allowedDomain}`)
       return
     }
 
@@ -525,7 +442,10 @@ export default function App() {
             : error.message
         )
       } else {
+        setEmail('')
+        setPassword('')
         setAuthOpen(false)
+
         notify(
           isAdminMode
             ? 'Demande de compte administrateur envoyée. Vérifie tes e-mails. Seules les adresses préautorisées obtiennent les droits admin.'
@@ -544,7 +464,10 @@ export default function App() {
 
     if (error || !data.user) {
       setAuthBusy(false)
-      notify(error?.message || 'Connexion impossible. Vérifie tes identifiants.')
+      setPassword('')
+      notify(
+        error?.message || 'Connexion impossible. Vérifie tes identifiants.'
+      )
       return
     }
 
@@ -557,14 +480,20 @@ export default function App() {
 
       if (profileError || adminProfile?.role !== 'admin') {
         await supabase.auth.signOut()
+        setEmail('')
+        setPassword('')
         setAuthBusy(false)
+
         notify(
           'Ce compte n’a pas accès à l’espace administrateur. Utilise une adresse autorisée.'
         )
+
         return
       }
 
       setPage('admin')
+      setEmail('')
+      setPassword('')
       setAuthOpen(false)
       setAuthBusy(false)
       notify('Bienvenue dans l’espace administrateur !')
@@ -572,16 +501,17 @@ export default function App() {
     }
 
     setPage('ideas')
+    setEmail('')
+    setPassword('')
     setAuthOpen(false)
     setAuthBusy(false)
     notify('Bienvenue sur NWS Ideas !')
   }
 
-  // Enregistrer ou retirer un vote
+  // Enregistrer ou retirer un vote.
   async function vote(idea: Idea) {
     if (!session) {
-      setAuthMode('login')
-      setAuthOpen(true)
+      openAuth('login')
       return
     }
 
@@ -610,13 +540,12 @@ export default function App() {
     }
   }
 
-  // Publier une idée
+  // Publier une idée.
   async function submitIdea(event: FormEvent) {
     event.preventDefault()
 
     if (!session) {
-      setAuthMode('login')
-      setAuthOpen(true)
+      openAuth('login')
       return
     }
 
@@ -671,7 +600,104 @@ export default function App() {
     }
   }
 
-  // Changer le statut d'une idée : Supabase crée la notification si le trigger est actif
+  // Publier un commentaire.
+  async function submitComment(event: FormEvent) {
+    event.preventDefault()
+
+    if (!session) {
+      openAuth('login')
+      return
+    }
+
+    if (!selected || selected.id.startsWith('demo-')) {
+      notify('Les commentaires sont disponibles sur les idées réelles.')
+      return
+    }
+
+    const body = commentText.trim()
+
+    if (!body) {
+      notify('Écris un commentaire avant de publier.')
+      return
+    }
+
+    if (body.length > 1000) {
+      notify('Le commentaire ne doit pas dépasser 1000 caractères.')
+      return
+    }
+
+    setCommentBusy(true)
+
+    const { error } = await supabase.from('comments').insert({
+      idea_id: selected.id,
+      author_id: session.user.id,
+      body
+    })
+
+    setCommentBusy(false)
+
+    if (error) {
+      notify(`Commentaire non publié : ${error.message}`)
+      return
+    }
+
+    setCommentText('')
+    await loadComments(selected.id)
+    notify('Commentaire publié !')
+  }
+
+  // Supprimer un commentaire lorsque les droits le permettent.
+  async function deleteComment(comment: IdeaComment) {
+    if (
+      !session ||
+      (comment.author_id !== session.user.id && profile?.role !== 'admin')
+    ) {
+      return
+    }
+
+    if (!window.confirm('Supprimer ce commentaire ?')) return
+
+    const { error } = await supabase
+      .from('comments')
+      .delete()
+      .eq('id', comment.id)
+
+    if (error) {
+      notify(`Commentaire non supprimé : ${error.message}`)
+      return
+    }
+
+    await loadComments(comment.idea_id)
+    notify('Commentaire supprimé.')
+  }
+
+  // Marquer une notification comme lue.
+  async function markNotificationRead(notification: AppNotification) {
+    if (!session || notification.read_at) return
+
+    const now = new Date().toISOString()
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read_at: now })
+      .eq('id', notification.id)
+      .eq('user_id', session.user.id)
+
+    if (error) {
+      notify(`Impossible de marquer la notification comme lue : ${error.message}`)
+      return
+    }
+
+    setNotifications(current =>
+      current.map(item =>
+        item.id === notification.id
+          ? { ...item, read_at: now }
+          : item
+      )
+    )
+  }
+
+  // Modifier le statut d'une idée, réservé au rôle administrateur.
   async function updateStatus(ideaId: string, status: IdeaStatus) {
     if (profile?.role !== 'admin') {
       notify('Accès réservé à l’administration.')
@@ -692,6 +718,7 @@ export default function App() {
     }
   }
 
+  // Supprimer une proposition, réservé au rôle administrateur.
   async function deleteIdea(ideaId: string) {
     if (profile?.role !== 'admin') {
       notify('Accès réservé à l’administration.')
@@ -714,14 +741,42 @@ export default function App() {
     }
   }
 
-  const realIdeas = ideas.filter(idea => !idea.id.startsWith('demo-'))
+  // Déconnexion et effacement des données de formulaire.
+  async function signOut() {
+    const { error } = await supabase.auth.signOut()
+
+    if (error) {
+      notify(`Déconnexion impossible : ${error.message}`)
+      return
+    }
+
+    setProfile(null)
+    setSession(null)
+    setPage('ideas')
+    setNotifications([])
+    setIdeaComments([])
+    setCommentText('')
+    setEmail('')
+    setPassword('')
+    setAuthOpen(false)
+    setSelected(null)
+
+    notify('Tu es déconnecté.')
+  }
+
+  const realIdeas = ideas.filter(
+    idea => !idea.id.startsWith('demo-')
+  )
 
   const counts = {
     total: realIdeas.length,
     accepted: realIdeas.filter(idea =>
       ['Acceptée', 'Réalisée'].includes(idea.status)
     ).length,
-    votes: realIdeas.reduce((sum, idea) => sum + idea.votes_count, 0)
+    votes: realIdeas.reduce(
+      (sum, idea) => sum + idea.votes_count,
+      0
+    )
   }
 
   return (
@@ -736,7 +791,10 @@ export default function App() {
           }}
         >
           <span className="brand-mark">
-            <img src="/logo-nws.jpeg" alt="Logo Normandie Web School" />
+            <img
+              src="/logo-nws.jpeg"
+              alt="Logo Normandie Web School"
+            />
           </span>
           <span>
             <b>
@@ -759,9 +817,7 @@ export default function App() {
         <button
           className={`nav-item ${page === 'mine' ? 'active' : ''}`}
           onClick={() =>
-            session
-              ? setPage('mine')
-              : (setAuthMode('login'), setAuthOpen(true))
+            session ? setPage('mine') : openAuth('login')
           }
         >
           <Lightbulb size={18} />
@@ -770,22 +826,29 @@ export default function App() {
 
         <button
           className={`nav-item ${page === 'notifications' ? 'active' : ''}`}
-          onClick={() =>
-            session
-              ? (setPage('notifications'), void loadNotifications())
-              : (setAuthMode('login'), setAuthOpen(true))
-          }
+          onClick={() => {
+            if (!session) {
+              openAuth('login')
+              return
+            }
+
+            setPage('notifications')
+            void loadNotifications()
+          }}
         >
           <Bell size={18} />
           Notifications
           {unreadNotifications > 0 && (
-            <span className="notification-count">{unreadNotifications}</span>
+            <span className="notification-count">
+              {unreadNotifications}
+            </span>
           )}
         </button>
 
         {profile?.role === 'admin' && (
           <>
             <div className="nav-label">GESTION</div>
+
             <button
               className={`nav-item ${page === 'admin' ? 'active' : ''}`}
               onClick={() => setPage('admin')}
@@ -807,9 +870,7 @@ export default function App() {
             </p>
             <button
               onClick={() =>
-                session
-                  ? setFormOpen(true)
-                  : (setAuthMode('login'), setAuthOpen(true))
+                session ? setFormOpen(true) : openAuth('login')
               }
             >
               Proposer une idée <ArrowUpRight size={15} />
@@ -817,17 +878,7 @@ export default function App() {
           </div>
 
           {session ? (
-            <button
-              className="user-row"
-              onClick={async () => {
-                await supabase.auth.signOut()
-                setProfile(null)
-                setSession(null)
-                setPage('ideas')
-                setNotifications([])
-                notify('Tu es déconnecté.')
-              }}
-            >
+            <button className="user-row" onClick={() => void signOut()}>
               <span className="avatar">
                 {(session.user.email || 'E')[0].toUpperCase()}
               </span>
@@ -842,10 +893,7 @@ export default function App() {
           ) : (
             <button
               className="login-sidebar"
-              onClick={() => {
-                setAuthMode('login')
-                setAuthOpen(true)
-              }}
+              onClick={() => openAuth('login')}
             >
               Se connecter <ArrowUpRight size={16} />
             </button>
@@ -873,14 +921,14 @@ export default function App() {
             <span className="top-status">
               L'espace collaboratif étudiant
             </span>
+
             <button
               className="admin-entry"
               onClick={() => {
                 if (session && profile?.role === 'admin') {
                   setPage('admin')
                 } else {
-                  setAuthMode('admin-login')
-                  setAuthOpen(true)
+                  openAuth('admin-login')
                 }
               }}
             >
@@ -891,10 +939,7 @@ export default function App() {
             {!session && (
               <button
                 className="btn btn-dark btn-small"
-                onClick={() => {
-                  setAuthMode('login')
-                  setAuthOpen(true)
-                }}
+                onClick={() => openAuth('login')}
               >
                 Connexion <ArrowUpRight size={15} />
               </button>
@@ -909,21 +954,22 @@ export default function App() {
                 <span />
                 LA COMMUNAUTÉ NWS IMAGINE DEMAIN
               </div>
+
               <h1>
                 Et si on faisait
                 <br />
                 bouger les choses<span className="yellow-dot">.</span>
               </h1>
+
               <p>
                 Une idée, une envie, une amélioration ? Partage tes propositions
                 et construisons ensemble une meilleure expérience à la NWS.
               </p>
+
               <button
                 className="btn btn-yellow"
                 onClick={() =>
-                  session
-                    ? setFormOpen(true)
-                    : (setAuthMode('login'), setAuthOpen(true))
+                  session ? setFormOpen(true) : openAuth('login')
                 }
               >
                 <Plus size={18} />
@@ -934,6 +980,7 @@ export default function App() {
             <div className="hero-art">
               <div className="art-orbit orbit-one" />
               <div className="art-orbit orbit-two" />
+
               <div className="idea-card-floating">
                 <div className="floating-icon">
                   <Lightbulb size={31} />
@@ -944,7 +991,11 @@ export default function App() {
                 </div>
                 <Sparkles className="floating-spark" size={23} />
               </div>
-              <div className="art-badge badge-top">✳ 100% collaboratif</div>
+
+              <div className="art-badge badge-top">
+                ✳ 100% collaboratif
+              </div>
+
               <div className="art-badge badge-bottom">
                 <span className="live-dot" />
                 Tes idées comptent
@@ -1017,6 +1068,7 @@ export default function App() {
                     Retrouve ici les changements de statut de tes propositions.
                   </p>
                 </div>
+
                 <button
                   className="btn btn-dark create-button"
                   onClick={() => void loadNotifications()}
@@ -1056,6 +1108,7 @@ export default function App() {
                     <div className="notification-icon">
                       <Bell size={19} />
                     </div>
+
                     <div className="notification-content">
                       <p>{notification.message}</p>
                       <small>
@@ -1065,6 +1118,7 @@ export default function App() {
                         }).format(new Date(notification.created_at))}
                       </small>
                     </div>
+
                     {!notification.read_at && (
                       <button
                         className="icon-button"
@@ -1178,12 +1232,11 @@ export default function App() {
                       : 'Découvre, soutiens et fais grandir les idées des étudiants.'}
                   </p>
                 </div>
+
                 <button
                   className="btn btn-dark create-button"
                   onClick={() =>
-                    session
-                      ? setFormOpen(true)
-                      : (setAuthMode('login'), setAuthOpen(true))
+                    session ? setFormOpen(true) : openAuth('login')
                   }
                 >
                   <Plus size={17} /> Nouvelle idée
@@ -1269,13 +1322,16 @@ export default function App() {
                           <span className="visual-label">NWS / IDEAS</span>
                         </div>
                       )}
+
                       <span className="category-tag">{idea.category}</span>
                     </div>
 
                     <div className="idea-body">
                       <div className="card-meta">
                         <span
-                          className={`status-pill status-${statusClass(idea.status)}`}
+                          className={`status-pill status-${statusClass(
+                            idea.status
+                          )}`}
                         >
                           <span />
                           {idea.status}
@@ -1315,8 +1371,8 @@ export default function App() {
                           className="comment-link"
                           onClick={() => setSelected(idea)}
                         >
-                          <MessageCircle size={16} /> Détails{' '}
-                          <ArrowUpRight size={14} />
+                          <MessageCircle size={16} />
+                          Détails <ArrowUpRight size={14} />
                         </button>
                       </div>
                     </div>
@@ -1330,9 +1386,7 @@ export default function App() {
                     <Search size={24} />
                   </span>
                   <h3>Aucune idée trouvée</h3>
-                  <p>
-                    Essaie un autre mot-clé ou change les filtres.
-                  </p>
+                  <p>Essaie un autre mot-clé ou change les filtres.</p>
                   <button
                     className="btn btn-dark"
                     onClick={() => {
@@ -1373,18 +1427,26 @@ export default function App() {
         </div>
       </main>
 
-      {/* Fenêtre de connexion et d'inscription */}
+      {/* Fenêtre de connexion, inscription et récupération du mot de passe */}
       {authOpen && (
         <div
           className="modal-backdrop"
           onMouseDown={event => {
-            if (event.target === event.currentTarget) setAuthOpen(false)
+            if (event.target === event.currentTarget) {
+              setEmail('')
+              setPassword('')
+              setAuthOpen(false)
+            }
           }}
         >
           <section className="modal auth-modal">
             <button
               className="modal-close"
-              onClick={() => setAuthOpen(false)}
+              onClick={() => {
+                setEmail('')
+                setPassword('')
+                setAuthOpen(false)
+              }}
               aria-label="Fermer"
             >
               <X />
@@ -1421,11 +1483,19 @@ export default function App() {
                     : 'Connecte-toi avec ton adresse e-mail étudiante pour participer.'}
             </p>
 
-            <form onSubmit={authenticate} className="form-stack">
+            <form
+              onSubmit={authenticate}
+              className="form-stack"
+              autoComplete="off"
+            >
               <label>
                 Adresse e-mail NWS
                 <input
                   type="email"
+                  name="nws-login-email"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   required
                   placeholder={`prenom@${allowedDomain}`}
                   value={email}
@@ -1438,6 +1508,8 @@ export default function App() {
                   Mot de passe
                   <input
                     type="password"
+                    name="nws-login-password"
+                    autoComplete="new-password"
                     required
                     minLength={8}
                     placeholder="8 caractères minimum"
@@ -1454,6 +1526,8 @@ export default function App() {
                   onClick={() => {
                     setResetReturnMode(authMode)
                     setAuthMode('reset')
+                    setEmail('')
+                    setPassword('')
                   }}
                 >
                   Mot de passe oublié ?
@@ -1461,6 +1535,7 @@ export default function App() {
               )}
 
               <button
+                type="submit"
                 className="btn btn-yellow full-width"
                 disabled={authBusy || !isConfigured}
               >
@@ -1497,6 +1572,9 @@ export default function App() {
 
               <button
                 onClick={() => {
+                  setEmail('')
+                  setPassword('')
+
                   if (authMode === 'reset') {
                     setAuthMode(resetReturnMode)
                   } else if (authMode === 'login') {
@@ -1524,7 +1602,13 @@ export default function App() {
               {(authMode === 'admin-login' ||
                 authMode === 'admin-signup') && (
                 <div className="auth-back">
-                  <button onClick={() => setAuthMode('login')}>
+                  <button
+                    onClick={() => {
+                      setEmail('')
+                      setPassword('')
+                      setAuthMode('login')
+                    }}
+                  >
                     ← Retour à la connexion étudiante
                   </button>
                 </div>
@@ -1639,7 +1723,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Détails de l'idée, vote et commentaires */}
+      {/* Détails d'une idée et commentaires */}
       {selected && (
         <div
           className="modal-backdrop"
@@ -1686,18 +1770,31 @@ export default function App() {
               <button
                 className={`vote-button ${selected.has_voted ? 'voted' : ''}`}
                 onClick={async () => {
-                  const wasVoted = selected.has_voted
-                  await vote(selected)
-                  setSelected(current =>
-                    current
-                      ? {
-                          ...current,
-                          has_voted: !wasVoted,
-                          votes_count:
-                            current.votes_count + (wasVoted ? -1 : 1)
-                        }
-                      : null
-                  )
+                  const current = selected
+                  await vote(current)
+                  await loadIdeas()
+
+                  // Le nombre affiché sera actualisé par le prochain chargement.
+                  const { data } = await supabase
+                    .from('ideas')
+                    .select('id,title,description,category,status,image_url,created_at,author_id,idea_votes(user_id)')
+                    .eq('id', current.id)
+                    .single()
+
+                  if (data) {
+                    const ideaVotes = Array.isArray(data.idea_votes)
+                      ? data.idea_votes
+                      : []
+
+                    setSelected({
+                      ...data,
+                      votes_count: ideaVotes.length,
+                      has_voted: ideaVotes.some(
+                        (vote: { user_id: string }) =>
+                          vote.user_id === session?.user.id
+                      )
+                    } as Idea)
+                  }
                 }}
               >
                 <ThumbsUp size={17} />
@@ -1716,6 +1813,7 @@ export default function App() {
                       onChange={async event => {
                         const nextStatus = event.target.value as IdeaStatus
                         await updateStatus(selected.id, nextStatus)
+
                         setSelected(current =>
                           current
                             ? { ...current, status: nextStatus }
@@ -1750,8 +1848,8 @@ export default function App() {
 
               {selected.id.startsWith('demo-') ? (
                 <p className="comments-help">
-                  Les commentaires seront disponibles lorsque cette idée aura
-                  été publiée réellement dans Supabase.
+                  Les commentaires sont disponibles sur les idées enregistrées
+                  dans Supabase.
                 </p>
               ) : commentsLoading ? (
                 <div className="loading">
@@ -1767,9 +1865,7 @@ export default function App() {
                   {ideaComments.map(comment => (
                     <article className="comment-item" key={comment.id}>
                       <div className="comment-avatar">
-                        {comment.author_id === session?.user.id
-                          ? 'Moi'
-                          : 'NWS'}
+                        {comment.author_id === session?.user.id ? 'Moi' : 'NWS'}
                       </div>
 
                       <div className="comment-content">
@@ -1843,10 +1939,7 @@ export default function App() {
                   <button
                     type="button"
                     className="text-button"
-                    onClick={() => {
-                      setAuthMode('login')
-                      setAuthOpen(true)
-                    }}
+                    onClick={() => openAuth('login')}
                   >
                     Connecte-toi
                   </button>{' '}
